@@ -1,4 +1,3 @@
-// backend/src/controllers/AuthController.ts
 import { Request, Response } from "express";
 import { AppDataBase } from "../db";
 import { Member } from "../models/member";
@@ -6,7 +5,6 @@ import { AuthService } from "../services/authService";
 import { Token } from "../models/token";
 
 export class AuthController {
-
   static async login(req: Request, res: Response) {
     const { email, password } = req.body;
 
@@ -31,18 +29,14 @@ export class AuthController {
 
       const token = await AuthService.generateToken(member);
 
-      // Remove a senha antes de retornar
       const { password: _, ...memberWithoutPassword } = member;
-      console.log("memberWithoutPassword", memberWithoutPassword); // Verifica se a senha foi removida corretamente
-      console.log("member", member); // Verifica se a senha foi removida corretamente
-      console.log("token", token); // Verifica se o token foi gerado corretamente
-      
+
       return res.json({
         member: memberWithoutPassword,
         token,
       });
     } catch (error) {
-      console.error("Erro no login:", error); //login is a not a function
+      console.error("Erro no login:", error);
       return res.status(500).json({ error: "Erro interno no servidor" });
     }
   }
@@ -74,7 +68,7 @@ export class AuthController {
     const tokenRepository = AppDataBase.getRepository(Token);
     try {
       const authHeader = req.headers.authorization;
-      const token = authHeader?.split(" ")[1];      
+      const token = authHeader?.split(" ")[1];
 
       if (!token)
         return res.status(401).json({ message: "Token não fornecido" });
@@ -88,9 +82,8 @@ export class AuthController {
       return res.status(200).json({ valid: true });
     } catch (err) {
       return res.status(401).json({ message: "Token inválido" });
-    }finally{
-    console.log("Validado.");
-
+    } finally {
+      console.log("Validado.");
     }
   }
 }

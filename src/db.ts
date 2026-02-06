@@ -10,11 +10,11 @@ import { Token } from './models/token';
 
 export const AppDataBase = new DataSource({
   type: "postgres",
-  host: process.env.DATABASE_HOST,
-  port: Number(process.env.DATABASE_PORT),
-  username: process.env.DATABASE_USER,
-  database: process.env.DATABASE_NAME,
-  password: process.env.DATABASE_PASSWORD,
+  host: process.env.DB_HOST,
+  port: Number(process.env.DB_PORT),
+  username: process.env.DB_USERNAME,
+  database: process.env.DB_DATABASE,
+  password: process.env.DB_PASSWORD,
   entities: [
     Member,
     MemberSkill,

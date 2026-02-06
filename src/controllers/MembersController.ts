@@ -99,24 +99,34 @@ export class MemberController {
         });
       }
 
-      // 3. Criar hash da senha
+      // 3. Buscar sponsor pelo nome se fornecido
+      let sponsorId = null;
+      if (memberData.sponsor) {
+        const sponsorMember = await memberRepository.findOne({
+          where: { name: memberData.sponsor }
+        });
+        sponsorId = sponsorMember?.id || null;
+      }
+
+      // 4. Criar hash da senha
       const hashedPassword = await bcrypt.hash(password, 10);
       const { confirm_password, ...dataWithoutConfirmPassword } = normalizedData;
-      console.log("Dado Final:", { ...dataWithoutConfirmPassword, password: hashedPassword });
-      // 4. Preparar dados para criação
-        const newMember = memberRepository.create({
-          ...normalizedData,
-          password: hashedPassword,
-          sponsor: memberData.sponsor || null
-        });
+      console.log("Dado Final:", { ...dataWithoutConfirmPassword, password: hashedPassword, sponsor: sponsorId });
+      
+      // 5. Preparar dados para criação
+      const newMember = memberRepository.create({
+        ...normalizedData,
+        password: hashedPassword,
+        sponsor: sponsorId
+      });
 
-      // 5. Criar e salvar membro
+      // 6. Criar e salvar membro
       const savedMember = await memberRepository.save(newMember);
 
-      // 6. Remover senha da resposta
+      // 7. Remover senha da resposta
       const { password: _, ...safeMemberData } = savedMember;
 
-      // 7. Retornar resposta
+      // 8. Retornar resposta
       return res.status(201).json({
         message: "Membro criado com sucesso!",
         data: safeMemberData,
