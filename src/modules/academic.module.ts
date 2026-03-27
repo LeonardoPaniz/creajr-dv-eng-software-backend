@@ -1,0 +1,16 @@
+import { Module } from '@nestjs/common';
+import { UniversityController } from '../controllers/UniversityController';
+import { CourseController } from '../controllers/CourseController';
+import { CityController } from '../controllers/CityController';
+import { StateController } from '../controllers/StateController';
+import { UniversityRepository } from '../repositories/UniversityRepository';
+import { CourseRepository } from '../repositories/CourseRepository';
+import { CityRepository } from '../repositories/CityRepository';
+import { StateRepository } from '../repositories/StateRepository';
+
+@Module({
+  controllers: [UniversityController, CourseController, CityController, StateController],
+  providers: [UniversityRepository, CourseRepository, CityRepository, StateRepository],
+  exports: [UniversityRepository, CourseRepository, CityRepository, StateRepository],
+})
+export class AcademicModule {}

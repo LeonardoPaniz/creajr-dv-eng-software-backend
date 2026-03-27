@@ -1,89 +1,82 @@
-import { Request, Response } from "express";
-import { AppDataBase } from "../db";
-import { Member } from "../models/member";
-import { AuthService } from "../services/authService";
-import { Token } from "../models/token";
+import { Controller, Get, Post, Param, Body, Headers, HttpCode, HttpStatus } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
+import { AuthService } from '../services/authService';
+import { LoginDto, RefreshTokenDto } from '../dto/members/login.dto';
 
+@Controller('auth')
+@ApiTags('Authentication')
 export class AuthController {
-  static async login(req: Request, res: Response) {
-    const { email, password } = req.body;
+  constructor(private readonly authService: AuthService) {}
 
-    try {
-      const memberRepository = AppDataBase.getRepository(Member);
-      const member = await memberRepository.findOne({
-        where: { email_personal: email },
-        select: ["id", "password", "email_personal", "position", "name"],
-      });
-
-      if (!member) {
-        return res.status(401).json({ error: "Credenciais inválidas" });
-      }
-
-      const passwordMatch = await AuthService.comparePasswords(
-        password,
-        member.password
-      );
-      if (!passwordMatch) {
-        return res.status(401).json({ error: "Credenciais inválidas" });
-      }
-
-      const token = await AuthService.generateToken(member);
-
-      const { password: _, ...memberWithoutPassword } = member;
-
-      return res.json({
-        member: memberWithoutPassword,
-        token,
-      });
-    } catch (error) {
-      console.error("Erro no login:", error);
-      return res.status(500).json({ error: "Erro interno no servidor" });
-    }
+  @Post('login')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'User login' })
+  @ApiBody({ type: LoginDto })
+  @ApiResponse({ status: 200, description: 'Login successful' })
+  @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  async login(@Body() body: LoginDto) {
+    return this.authService.login(body.personalEmail, body.password, body.rememberMe);
   }
 
-  static async getProfile(req: Request, res: Response) {
-    // O middleware já validou o token e adicionou o usuário na requisição
-    const userId = req.user?.id;
-    console.log("ID do usuário:", userId); //ID do usuário: undefined
-
-    try {
-      const memberRepository = AppDataBase.getRepository(Member);
-      const member = await memberRepository.findOne({
-        where: { id: userId },
-      });
-
-      if (!member) {
-        return res.status(404).json({ error: "Usuário não encontrado" });
-      }
-
-      return res.json(member);
-    } catch (error) {
-      console.error("Erro ao buscar perfil:", error);
-      return res.status(500).json({ error: "Erro interno no servidor" });
-    }
+  @Post('refresh-token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Refresh authentication token' })
+  @ApiBody({ type: RefreshTokenDto })
+  @ApiResponse({ status: 200, description: 'Refresh successful' })
+  @ApiResponse({ status: 401, description: 'Invalid refresh token' })
+  async refreshToken(@Body() body: RefreshTokenDto) {
+    return this.authService.refreshToken(body.refreshToken);
   }
 
-  static async validateToken(req: Request, res: Response) {
-    console.log("Validando token...");
-    const tokenRepository = AppDataBase.getRepository(Token);
-    try {
-      const authHeader = req.headers.authorization;
-      const token = authHeader?.split(" ")[1];
+  @Get('profile/:id')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get user profile' })
+  @ApiParam({ name: 'id', type: String, example: 'b314b18f-26d6-4f97-9ed2-1f3942f8b787' })
+  @ApiResponse({ status: 200, description: 'Profile retrieved' })
+  @ApiResponse({ status: 404, description: 'User not found' })
+  async getProfile(@Param('id') id: string) {
+    return this.authService.getProfile(id);
+  }
 
-      if (!token)
-        return res.status(401).json({ message: "Token não fornecido" });
-
-      const tokenData = await tokenRepository.findOne({ where: { token } });
-
-      if (!tokenData || new Date(tokenData.expiresAt) < new Date()) {
-        return res.status(401).json({ message: "Token inválido ou expirado" });
-      }
-
-      return res.status(200).json({ valid: true });
-    } catch (err) {
-      return res.status(401).json({ message: "Token inválido" });
-    } finally {
-      console.log("Validado.");
+  @Get('verify-access-token')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Validate access token' })
+  @ApiResponse({ status: 200, description: 'Token is valid' })
+  @ApiResponse({ status: 401, description: 'Token invalid or expired' })
+  async validate(@Headers('authorization') authorization: string) {
+    const accessToken = authorization?.split(' ')[1];
+    if (!accessToken) {
+      throw new Error('Token não fornecido');
     }
+    const decoded = await this.authService.verifyAccessToken(accessToken);
+    return { valid: true, user: decoded };
+  }
+
+  @Get('validate-access-token')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Validate access authentication token' })
+  @ApiResponse({ status: 200, description: 'Access token is valid' })
+  @ApiResponse({ status: 401, description: 'Access token invalid or expired' })
+  async validateToken(@Headers('authorization') authorization: string) {
+    const accessToken = authorization?.split(' ')[1];
+    if (!accessToken) {
+      throw new Error('Token não fornecido');
+    }
+    return this.authService.validateAccessToken(accessToken);
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'User logout' })
+  @ApiResponse({ status: 200, description: 'Logout successful' })
+  @ApiResponse({ status: 401, description: 'Invalid token' })
+  async logout(@Headers('authorization') authorization: string) {
+    const accessToken = authorization?.split(' ')[1];
+    if (!accessToken) {
+      throw new Error('Token não fornecido');
+    }
+    await this.authService.logout(accessToken);
+    return { message: 'Logout realizado com sucesso' };
   }
 }

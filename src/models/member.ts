@@ -1,4 +1,8 @@
-import { Entity, PrimaryGeneratedColumn, Column } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, ManyToMany, JoinTable, ManyToOne, JoinColumn, OneToMany } from "typeorm";
+import { Role } from "./role";
+import { City } from "./city";
+import { Car } from "./car";
+import { MemberCourse } from "./memberCourse";
 
 @Entity("members")
 export class Member {
@@ -32,28 +36,32 @@ export class Member {
   @Column({ type: "date" })
   birth_date!: Date;
 
-  @Column({ length: 255 })
-  university!: string;
+  @OneToMany(() => MemberCourse, (mc) => mc.member)
+  memberCourses?: MemberCourse[];
 
-  @Column({ length: 255 })
-  course!: string;
+  @Column({ type: "uuid", nullable: true })
+  city_id?: string;
 
-  @Column({ length: 255 })
-  campus!: string;
+  @ManyToOne(() => City, (city) => city.members)
+  @JoinColumn({ name: "city_id" })
+  city?: City;
 
   @Column({ type: "date" })
   admission_date!: Date;
 
-  @Column({
-    type: "enum",
-    enum: ["Membro", "Líder", "Dirigente"],
-    default: "Membro",
-    nullable: false,
-  })
-  position!: string;
-
   @Column({ type: "uuid", nullable: true })
   sponsor?: string;
+
+  @ManyToMany(() => Role, (role) => role.members)
+  @JoinTable({
+    name: "member_roles",
+    joinColumn: { name: "member_id", referencedColumnName: "id" },
+    inverseJoinColumn: { name: "role_id", referencedColumnName: "id" },
+  })
+  roles: Role[];
+
+  @ManyToMany(() => Car, (car) => car.managers)
+  managedCars: Car[];
 
   @Column({ length: 255, nullable: true })
   biography!: string;
@@ -78,4 +86,7 @@ export class Member {
 
   @Column({ length: 255, nullable: true })
   github_url!: string;
+
+  @Column({ length: 255, nullable: true })
+  slug: string;
 }

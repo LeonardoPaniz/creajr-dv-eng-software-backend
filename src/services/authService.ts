@@ -1,71 +1,146 @@
-// backend/src/services/authService.ts
-import jwt from "jsonwebtoken";
+import { Injectable } from "@nestjs/common";
+import * as jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
 import { authConfig } from "../config/auth";
 import { Member } from "../models/member";
-import bcrypt from "bcryptjs";
-import { AppDataBase } from "../db";
-import { Token } from "../models/token";
+import { MemberRepository } from "../repositories/MemberRepository";
+import { TokenRepository } from "../repositories/TokenRepository";
 
+@Injectable()
 export class AuthService {
-  static async generateToken(member: Member): Promise<string> {
-    const tokenRepo = AppDataBase.getRepository(Token);
-    await tokenRepo.delete({ memberId: member.id });
+  constructor(
+    private readonly memberRepository: MemberRepository,
+    private readonly tokenRepository: TokenRepository,
+  ) {}
+
+  async login(email: string, password: string, rememberMe?: boolean) {
+    const member = await this.memberRepository.findByEmailWithPassword(email);
+    if (!member) throw new Error("Credenciais inválidas");
+
+    const passwordMatch = await bcrypt.compare(password, member.password);
+    if (!passwordMatch) throw new Error("Credenciais inválidas");
+
+    const accessToken = await this.generateAccessToken(member);
     
+    let refreshToken: string | undefined;
+    if (rememberMe) {
+      refreshToken = await this.generateRefreshToken(member);
+    }
+    
+    const { password: _, roles, ...memberWithoutPassword } = member;
+
+    return {
+      member: { ...memberWithoutPassword, roles: roles?.map(r => r.name) || [] },
+      accessToken,
+      refreshToken,
+    };
+  }
+  async getProfile(userId: string) {
+    const member = await this.memberRepository.findById(userId);
+    if (!member) throw new Error("Usuário não encontrado");
+    return member;
+  }
+
+  async refreshToken(refreshToken: string) {
+    if (!authConfig.jwt.refreshSecret) throw new Error("JWT refresh secret is not defined");
+
+    const tokenData = await this.tokenRepository.findByToken(refreshToken);
+    if (!tokenData || tokenData.expiresAt < new Date()) {
+      throw new Error("Refresh token inválido ou expirado");
+    }
+
+    const secret = authConfig.jwt.refreshSecret;
+    const decoded = jwt.verify(refreshToken, secret) as { id: string };
+    const member = await this.memberRepository.findById(decoded.id);
+    if (!member) throw new Error("Usuário não encontrado");
+
+    const accessToken = await this.generateAccessToken(member);
+    const newRefreshToken = await this.generateRefreshToken(member);
+    
+    return { accessToken, refreshToken: newRefreshToken };
+  }
+
+  async validateAccessToken(accessToken: string) {
+    const tokenData = await this.tokenRepository.findByToken(accessToken);
+    if (!tokenData || tokenData.expiresAt < new Date()) {
+      throw new Error("Token inválido ou expirado");
+    }
+    return { valid: true };
+  }
+
+  private async generateAccessToken(member: Member): Promise<string> {
+    if (!authConfig.jwt.secret) throw new Error("JWT secret is not defined");
+
+    await this.tokenRepository.deleteByMemberIdAndType(member.id, "access");
+
+    const roles = member.roles?.map(role => role.name) || [];
+
     const token = jwt.sign(
       {
         id: member.id,
         email: member.email_personal,
-        position: member.position,
+        roles: roles,
       },
       authConfig.jwt.secret,
-      { expiresIn: authConfig.jwt.expiresIn }
+      { expiresIn: authConfig.jwt.expiresIn },
     );
 
-    // Salva token no banco
     const decoded = jwt.decode(token) as { exp: number };
-    const expiresAt = new Date(decoded.exp * 1000);
-
-    await tokenRepo.save({
+    await this.tokenRepository.save({
       token,
       memberId: member.id,
-      expiresAt,
+      type: "access",
+      expiresAt: new Date(decoded.exp * 1000),
     });
 
     return token;
   }
 
-  static async verifyToken(token: string): Promise<{
-    id: string;
-    email: string;
-    position: string;
-  }> {
-    if (!authConfig.jwt.secret) {
-      throw new Error("JWT secret is not defined in the configuration.");
-    }
+  private async generateRefreshToken(member: Member): Promise<string> {
+    if (!authConfig.jwt.refreshSecret) throw new Error("JWT refresh secret is not defined");
 
-    const tokenRepo = AppDataBase.getRepository(Token);
-    const savedToken = await tokenRepo.findOneBy({ token });
+    await this.tokenRepository.deleteByMemberIdAndType(member.id, "refresh");
 
-    if (!savedToken || savedToken.expiresAt < new Date()) {
+    const token = jwt.sign(
+      {
+        id: member.id,
+      },
+      authConfig.jwt.refreshSecret,
+      { expiresIn: authConfig.jwt.refreshExpiresIn },
+    );
+    const decoded = jwt.decode(token) as { exp: number };
+    await this.tokenRepository.save({
+      token,
+      memberId: member.id,
+      type: "refresh",
+      expiresAt: new Date(decoded.exp * 1000),
+    });
+    return token;
+  }
+  
+  async logout(accessToken: string) {
+    const tokenData = await this.tokenRepository.findByToken(accessToken);
+    if (!tokenData) throw new Error("Token não encontrado");
+    
+    await this.tokenRepository.deleteByMemberId(tokenData.memberId);
+  }
+
+  async verifyAccessToken(token: string) {
+    if (!authConfig.jwt.secret) throw new Error("JWT secret is not defined");
+
+    try {
+      return jwt.verify(token, authConfig.jwt.secret) as {
+        id: string;
+        email: string;
+        roles: string[];
+      };
+    } catch (error) {
       throw new Error("Token inválido ou expirado");
     }
-
-    return jwt.verify(token, authConfig.jwt.secret) as {
-      id: string;
-      email: string;
-      position: string;
-    };
   }
 
-  static async hashPassword(password: string): Promise<string> {
-    const salt = await bcrypt.genSalt(10);
-    return await bcrypt.hash(password, salt);
-  }
-
-  static async comparePasswords(
-    plainPassword: string,
-    hashedPassword: string
-  ): Promise<boolean> {
-    return await bcrypt.compare(plainPassword, hashedPassword);
+  async isTokenRevoked(token: string): Promise<boolean> {
+    const savedToken = await this.tokenRepository.findByToken(token);
+    return !savedToken;
   }
 }

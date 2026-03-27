@@ -11,6 +11,9 @@ export class Token {
   @Column()
   memberId!: string;
 
+  @Column({ type: "varchar", length: 20 })
+  type!: "access" | "refresh";
+
   @Column({ type: "timestamp" })
   expiresAt!: Date;
 

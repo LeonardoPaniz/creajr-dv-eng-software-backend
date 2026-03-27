@@ -1,6 +1,6 @@
-//backend/src/middlewares/authMiddleware.ts
 import { Request, Response, NextFunction } from "express";
-import { AuthService } from "../services/authService";
+import * as jwt from "jsonwebtoken";
+import { authConfig } from "../config/auth";
 
 export async function authMiddleware(
   req: Request,
@@ -10,22 +10,30 @@ export async function authMiddleware(
   const authHeader = req.headers.authorization;
 
   if (!authHeader) {
-    return res.status(401).json({ error: "Token não fornecido" });
+    res.status(401).json({ error: "Token não fornecido" });
+    return;
   }
 
   const parts = authHeader.split(" ");
   if (parts.length !== 2 || parts[0] !== "Bearer") {
-    return res.status(401).json({ error: "Formato de token inválido" });
+    res.status(401).json({ error: "Formato de token inválido" });
+    return;
   }
 
   const token = parts[1];
 
   try {
-    const decoded = await AuthService.verifyToken(token);
-    console.log("Token decodificado:", decoded);
-    req.user = decoded; // Adiciona os dados do usuário à requisição
+    if (!authConfig.jwt.secret) throw new Error("JWT secret is not defined");
+    
+    const decoded = jwt.verify(token, authConfig.jwt.secret) as {
+      id: string;
+      email: string;
+      roles: string[];
+    };
+    
+    req.user = decoded;
     next();
   } catch (error) {
-    return res.status(401).json({ error: "Token inválido ou expirado" });
+    res.status(401).json({ error: "Token inválido ou expirado" });
   }
 }

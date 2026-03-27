@@ -1,188 +1,165 @@
-//controllers/MembersController.ts
-import { Request, Response } from "express";
-import { AppDataBase } from "../db";
-import { Member } from "../models/member";
-import bcrypt from "bcryptjs";
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Param,
+  Body,
+  HttpStatus,
+  HttpCode,
+  Headers,
+  HttpException,
+  UnauthorizedException,
+} from "@nestjs/common";
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiParam,
+  ApiBody,
+} from "@nestjs/swagger";
+import { MemberService } from "../services/MemberService";
+import { CreateMemberDto } from "../dto/members/create-member.dto";
+import { UpdateMemberDto } from "../dto/members/update-member.dto";
+import { getMemberIdFromAccessToken } from "../helpers/tokenHelper";
+
+@Controller("members")
+@ApiTags("Members")
 export class MemberController {
-  static async getAllMembers(req: Request, res: Response) {
-    try {
-      const memberRepository = AppDataBase.getRepository(Member);
-      const members = await memberRepository.find();
-      res.json(members);
-    } catch (error: any) {
-      console.error("Error fetching members:", error);
-      res.status(500).json({ message: "Failed to get members", error });
-    }
+  constructor(private readonly memberService: MemberService) {}
+
+  @Get()
+  @ApiOperation({ summary: "Get all members" })
+  @ApiResponse({ status: 200, description: "List of all members" })
+  async getAllMembers() {
+    return this.memberService.getAllMembers();
   }
 
-  static async getMemberById(req: Request, res: Response) {
-    const id = req.params.id;
-    try {
-      const memberRepository = AppDataBase.getRepository(Member);
-      const member = await memberRepository.findOneBy({
-        id: id,
-      });
-      if (!member) {
-        return res.status(404).json({ message: "Member not found" });
-      }
-      res.json(member);
-    } catch (error) {
-      console.error("Error fetching member:", error);
-      res.status(500).json({ message: "Failed to get member", error });
-    }
+  @Get("profile/:slug")
+  @ApiOperation({ summary: "Get member profile by slug (public)" })
+  @ApiParam({
+    name: "slug",
+    type: String,
+    example: "john-doe",
+  })
+  @ApiResponse({ status: 200, description: "Member profile found" })
+  @ApiResponse({ status: 404, description: "Member not found" })
+  async getMemberBySlug(@Param("slug") slug: string) {
+    return this.memberService.getMemberBySlug(slug);
   }
 
-  static async getMemberByEmail(req: Request, res: Response) {
-    const email = req.params.email;
-    try {
-      const memberRepository = AppDataBase.getRepository(Member);
-      const member = await memberRepository.findOneBy({
-        email_personal: email,
-      });
-      if (!member) {
-        // GAMBIARRA , Favor modificar
-        return res.status(202).json({ message: "Member not found" });
-      }
-      res.json(member);
-    } catch (error) {
-      console.error("Error fetching member:", error);
-      res.status(500).json({ message: "Failed to get member", error });
-    }
+  @Get("/:id")
+  @ApiOperation({ summary: "Get member by ID" })
+  @ApiParam({
+    name: "id",
+    type: String,
+    example: "b314b18f-26d6-4f97-9ed2-1f3942f8b787",
+  })
+  @ApiResponse({ status: 200, description: "Member found" })
+  @ApiResponse({ status: 404, description: "Member not found" })
+  async getMemberById(@Param("id") id: string) {
+    return this.memberService.getMemberById(id);
   }
 
-  static async getMembersBySponsor(req: Request, res: Response) {
-    const sponsorId = req.params.sponsorId;
-    try {
-      const memberRepository = AppDataBase.getRepository(Member);
-      const members = await memberRepository.findBy({ sponsor: sponsorId });
-
-      if (members.length === 0) {
-        return res
-          .status(404)
-          .json({ message: "No members found with this sponsor" });
-      }
-
-      res.json(members);
-    } catch (error) {
-      console.error("Error fetching members by sponsor:", error);
-      res.status(500).json({ message: "Failed to get members", error });
-    }
+  @Get("email/:email")
+  @ApiOperation({ summary: "Get member by email" })
+  @ApiParam({ name: "email", type: String, example: "user@example.com" })
+  @ApiResponse({ status: 200, description: "Member found" })
+  @ApiResponse({ status: 202, description: "Member not found" })
+  async getMemberByEmail(@Param("email") email: string) {
+    return this.memberService.getMemberByEmail(email);
   }
 
-  static async createNewMember(req: Request, res: Response) {
-    const { password, ...memberData } = req.body;
-    console.log("Backend received data:", memberData);
+  @Get("sponsor/:sponsorId")
+  @ApiOperation({ summary: "Get members by sponsor" })
+  @ApiParam({
+    name: "sponsorId",
+    type: String,
+    example: "b314b18f-26d6-4f97-9ed2-1f3942f8b787",
+  })
+  @ApiResponse({ status: 200, description: "Members found" })
+  @ApiResponse({ status: 404, description: "No members found" })
+  async getMembersBySponsor(@Param("sponsorId") sponsorId: string) {
+    return this.memberService.getMembersBySponsor(sponsorId);
+  }
 
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: "Create new member" })
+  @ApiBody({ type: CreateMemberDto })
+  @ApiResponse({ status: 201, description: "Member created successfully" })
+  @ApiResponse({ status: 409, description: "CPF, RA or email already exists" })
+  async createNewMember(@Body() body: CreateMemberDto) {
+    const { password, ...memberData } = body;
+    const safeMemberData = await this.memberService.createMember(
+      memberData,
+      password,
+    );
+    return {
+      message: "Membro criado com sucesso!",
+      data: safeMemberData,
+    };
+  }
+
+  @Put("id/:id")
+  @ApiOperation({ summary: "Update member data" })
+  @ApiParam({
+    name: "id",
+    type: String,
+    example: "b314b18f-26d6-4f97-9ed2-1f3942f8b787",
+  })
+  @ApiBody({ type: UpdateMemberDto })
+  @ApiResponse({ status: 200, description: "Member updated successfully" })
+  @ApiResponse({ status: 404, description: "Member not found" })
+  async updateMemberData(
+    @Param("id") id: string,
+    @Body() updateData: UpdateMemberDto,
+  ) {
+    const savedMember = await this.memberService.updateMember(id, updateData);
+    return {
+      message: "Member updated successfully!",
+      data: savedMember,
+    };
+  }
+
+  @Get(":memberId/roles-and-permissions")
+  @ApiOperation({ summary: "Get member roles and permissions" })
+  @ApiParam({
+    name: "memberId",
+    type: String,
+    example: "b314b18f-26d6-4f97-9ed2-1f3942f8b787",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Member roles and permissions retrieved successfully",
+  })
+  @ApiResponse({ status: 404, description: "Member not found" })
+  @ApiResponse({ status: 401, description: "Unauthorized - Invalid token or memberId mismatch" })
+  async getMemberRolesAndPermissions(
+    @Param("memberId") memberId: string,
+    @Headers("authorization") authorization: string,
+  ) {
     try {
-      const normalizedData = {
-        ...memberData,
-        cpf: memberData.cpf.replace(/\D/g, ""),
-        birth_date: new Date(memberData.birth_date),
-        admission_date: new Date(memberData.admission_date),
-        ra: String(memberData.ra), // Garante que é string
-        position: memberData.position || "Membro",
-        biography: memberData.biography || null, // Corrige o typo
-      };
-      const memberRepository = AppDataBase.getRepository(Member);
-      const existing = await memberRepository.findOne({
-        where: [
-          { email_personal: normalizedData.email_personal },
-          { email_university: normalizedData.email_university },
-          { cpf: normalizedData.cpf },
-          { ra: normalizedData.ra },
-        ],
-      });
-
-      if (existing) {
-        return res.status(409).json({
-          message: "CPF, RA ou email já cadastrados",
-        });
+      if (!authorization) {
+        throw new UnauthorizedException("Authorization header is missing");
       }
 
-      // 3. Buscar sponsor pelo nome se fornecido
-      let sponsorId = null;
-      if (memberData.sponsor) {
-        const sponsorMember = await memberRepository.findOne({
-          where: { name: memberData.sponsor }
-        });
-        sponsorId = sponsorMember?.id || null;
-      }
-
-      // 4. Criar hash da senha
-      const hashedPassword = await bcrypt.hash(password, 10);
-      const { confirm_password, ...dataWithoutConfirmPassword } = normalizedData;
-      console.log("Dado Final:", { ...dataWithoutConfirmPassword, password: hashedPassword, sponsor: sponsorId });
+      // Extrair o token do header "Bearer xxxxx"
+      const token = authorization.replace("Bearer ", "");
       
-      // 5. Preparar dados para criação
-      const newMember = memberRepository.create({
-        ...normalizedData,
-        password: hashedPassword,
-        sponsor: sponsorId
-      });
-
-      // 6. Criar e salvar membro
-      const savedMember = await memberRepository.save(newMember);
-
-      // 7. Remover senha da resposta
-      const { password: _, ...safeMemberData } = savedMember;
-
-      // 8. Retornar resposta
-      return res.status(201).json({
-        message: "Membro criado com sucesso!",
-        data: safeMemberData,
-      });
-    } catch (error: any) {
-      console.error("ERRO DETALHADO:", {
-        name: error.name,
-        message: error.message,
-        stack: error.stack,
-        driverError: error.driverError,
-        code: error.code,
-      });
-
-      if (error.code === "23505") {
-        // Código de erro para violação de constraint única
-        return res.status(409).json({
-          message: "Violação de dado único (CPF, RA ou email já existente)",
-        });
+      const memberIdFromAcessToken = getMemberIdFromAccessToken(token);
+      if (memberIdFromAcessToken !== memberId) {
+        throw new UnauthorizedException("Token memberId does not match the requested memberId");
       }
-
-      return res.status(500).json({
-        message: "Erro ao criar membro",
-        error:
-          process.env.NODE_ENV === "development" ? error.message : undefined,
-      });
-    }
-  }
-
-  static async UpdateMemberData(req: Request, res: Response) {
-    const id = req.params.id; // Capturando o ID do membro da URL
-    const updateData = req.body; // Dados enviados no corpo da requisição
-
-    try {
-      const memberRepository = AppDataBase.getRepository(Member);
-
-      // Verificar se o membro existe
-      const existingMember = await memberRepository.findOneBy({ id });
-      if (!existingMember) {
-        return res.status(404).json({ message: "Member not found" });
-      }
-
-      // Atualizar os dados do membro com os valores do corpo da requisição
-      const updatedMember = memberRepository.merge(existingMember, updateData);
-
-      // Salvar as alterações no banco de dados
-      const savedMember = await memberRepository.save(updatedMember);
-
-      // Retornar a resposta com os dados atualizados
-      res.status(200).json({
-        message: "Member updated successfully!",
-        data: savedMember,
-      });
+      return this.memberService.getMemberRolesAndPermissions(memberId);
     } catch (error) {
-      console.error("Error updating member:", error);
-
-      res.status(500).json({ message: "Failed to update member", error });
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      if (error instanceof Error && error.message.includes("Token inválido ou expirado")) {
+        throw new UnauthorizedException(error.message);
+      }
+      throw error;
     }
   }
 }
